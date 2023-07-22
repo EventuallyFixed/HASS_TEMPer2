@@ -1,0 +1,15 @@
+# THIS IS NOT A COMPLETE CONFIGURATION.YAML
+# For the temper2 device to work, the following parts
+# have to be included in the config/configuration.yaml
+
+homeassistant:
+# We are using packages
+  packages: !include_dir_named packages
+# We are sourcing data from non standard directories
+  allowlist_external_dirs:
+    - /config/files
+
+# Shell Scripts
+shell_command:
+  temper2: bash /config/sh/temper2.sh
+
