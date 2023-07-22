@@ -12,18 +12,21 @@
 #   parse the line get HID device
 JSONFILE=files/temper2.json
 LOGFILE=files/temper2.log
+DEVICEID=1a86:e025
 
-hidstr=$(dmesg 2>/dev/null | grep -E  -m 1 'Device.*1a86:e025')
+# Get the latest mention of the device in the output of dmesg 
+echo "Searching output of dmesg for last line having '$DEVICEID'" > $LOGFILE
+hidstr=$(dmesg 2>/dev/null | awk -v did="$DEVICEID" '$0 ~ did {a=$0} END{print a}')
+
 if [ -z "$hidstr" ]; then
   echo "No TEMPer device found. Are you running as root? Is the device allowed in UDEV rules?" > $LOGFILE
 else 
   # find the postion of the "hidraw" string
-  echo "hidstr:" > $LOGFILE
-  echo $hidstr > $LOGFILE
-#  hidpos=$(echo $hidstr | awk '{print match($0, ",hidraw")}')
-#  echo "hidpos: $hidpos" >> $LOGFILE
+  echo "Found line:" >> $LOGFILE
+  echo $hidstr >> $LOGFILE
+  # As a check, get the position of 'hidraw' in the line
   hidpos=$(echo $hidstr | awk '{print index($0, ",hidraw")}')
-  echo "hidpos: $hidpos" >> $LOGFILE
+  # echo "hidpos: $hidpos" >> $LOGFILE
 
   if [ -z "$hidpos" ]; then
     echo "No TEMPer device found" >> $ERRFILE
@@ -36,14 +39,14 @@ else
     # Substring field 1 with the colon as a delimiter
     hid=$(echo $hid | awk -F ":" '{print $1}')
 	hid="/dev/$hid"
-    echo "hid: $hid" >> $LOGFILE
+    echo "Device is: $hid" >> $LOGFILE
     # Set variable
     exec 5<> $hid
     # send out query msg
     echo -e '\x00\x01\x80\x33\x01\x00\x00\x00\x00\c' >&5
     # get binary response
     OUT=$(dd count=2 bs=8 <&5 2>/dev/null | xxd -p)
-    echo "OUT: $OUT" >> $LOGFILE
+    echo "Output: $OUT" >> $LOGFILE
 
     # DEVICE READING
     # characters 5-8 is the device temp in hex x1000
