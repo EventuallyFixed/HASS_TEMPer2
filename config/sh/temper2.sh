@@ -1,69 +1,86 @@
 #!/bin/bash
-# 
-# By: Sheila S. Wilson
-# Get the temperature from a USB Temper Thermometer
 #
-# Original from: https://funprojects.blog/2021/05/02/temper-usb-temperature-sensor
-#   Archived as: https://archive.fo/nrR0r
-#   
-# Adapted for Home Assistant on HASSOS by Steven Tierney
-#   
-#   find the HID device from the kernel msg via dmesg
-#   parse the line get HID device
+# File outputs
 JSONFILE=files/temper2.json
 LOGFILE=files/temper2.log
-DEVICEID=1a86:e025
+# Comma separated list of USB Device IDs
+DEVICEIDS=1a86:e025,3553:a001
+declare -A hidDevices
 
-# Get the latest mention of the device in the output of dmesg 
-echo "Searching output of dmesg for last line having '$DEVICEID'" > $LOGFILE
-hidstr=$(dmesg 2>/dev/null | awk -v did="$DEVICEID" '$0 ~ did {a=$0} END{print a}')
 
-if [ -z "$hidstr" ]; then
-  echo "No TEMPer device found. Are you running as root? Is the device allowed in UDEV rules?" > $LOGFILE
-else 
-  # find the postion of the "hidraw" string
-  echo "Found line:" >> $LOGFILE
-  echo $hidstr >> $LOGFILE
-  # As a check, get the position of 'hidraw' in the line
-  hidpos=$(echo $hidstr | awk '{print index($0, ",hidraw")}')
-  # echo "hidpos: $hidpos" >> $LOGFILE
+#echo "BEGIN SCRIPT" > $LOGFILE
 
-  if [ -z "$hidpos" ]; then
-    echo "No TEMPer device found" >> $ERRFILE
-  else
-    # Get the hidraw device id from the string
-    # E.g. hidstr='[ 3.672655] hid-generic 0003:1A86:E025.0002: input,hidraw1: USB HID v1.10 Device [HID 1a86:e025] on usb-3f980000.usb-1.2/input1'
-    # Substring field 2 with the comma as a delimiter
-    hid=$(echo $hidstr | awk -F "," '{print $2}')
-    # echo "hid: $hid" >> $LOGFILE
-    # Substring field 1 with the colon as a delimiter
-    hid=$(echo $hid | awk -F ":" '{print $1}')
-	hid="/dev/$hid"
-    echo "Device is: $hid" >> $LOGFILE
-    # Set variable
+for DEVICEID in $(echo $DEVICEIDS | sed "s/,/ /g")
+do
+#    echo "Searching output of dmesg for lines having '$DEVICEID'" >> $LOGFILE
+
+    while IFS= read -r hidstr
+    do
+        #whatever with value $hidstr
+#        echo "hidstr: $hidstr" >> $LOGFILE
+
+        # Extract the hid device
+        hidpos=$(echo $hidstr | awk '{print index($0, ",hidraw")}')
+#        echo "hidpos: $hidpos" >> $LOGFILE
+
+        hid=$(echo $hidstr | awk -F "," '{print $2}')
+#        echo "hid: $hid" >> $LOGFILE
+
+        # Substring field 1 with the colon as a delimiter
+        hid=$(echo $hid | awk -F ":" '{print $1}')
+
+        # Add to the associative array
+        hidDevices[$hid]=$hid
+
+        # The output of the "dmesg | grep" below is 'injected' into the loop
+    done < <(dmesg | grep -i "$DEVICEID" | grep -i "hidraw" | grep -i "device")
+done
+
+# Loop though the associative array
+
+OUTTEXT="{ \"temper2\" : { "
+cnt=0
+for hiddev in "${!hidDevices[@]}"
+do
+#    echo "hiddev: $hiddev" >> $LOGFILE
+
+    # Use the keys to make the device name
+    hid=$(echo "/dev/$hiddev")
+#    echo "hid: $hid" >> $LOGFILE
     exec 5<> $hid
-    # send out query msg
     echo -e '\x00\x01\x80\x33\x01\x00\x00\x00\x00\c' >&5
     # get binary response
     OUT=$(dd count=2 bs=8 <&5 2>/dev/null | xxd -p)
-    echo "Output: $OUT" >> $LOGFILE
+#    echo "Output: $OUT" >> $LOGFILE
 
     # DEVICE READING
     # characters 5-8 is the device temp in hex x1000
     DHEX4=${OUT:4:4}
     DDVAL=$((16#$DHEX4))
     DCTEMP=$(bc <<< "scale=2; $DDVAL/100")
-    echo "DEVICE TEMP: $DCTEMP" >> $LOGFILE
+#    echo "DEVICE TEMP: $DCTEMP" >> $LOGFILE
 
     # PROBE READING
     # characters 20-23 is the probe temp in hex x1000
     PHEX4=${OUT:20:4}
     PDVAL=$((16#$PHEX4))
     PCTEMP=$(bc <<< "scale=2; $PDVAL/100")
-    echo "PROBE TEMP: $PCTEMP" >> $LOGFILE
+#    echo "PROBE TEMP: $PCTEMP" >> $LOGFILE
 
     # Output the temperatures in JSON format
-    echo "{ \"Device\" : \"$DCTEMP\" , \"Probe\" : \"$PCTEMP\" }" > $JSONFILE
-  fi 
-fi
+    cma="\"device$cnt\""
+    if [ $cnt -ne 0 ]; then
+        cma=" , $cma"
+    fi
+    OUTTEXT="$OUTTEXT$cma : { \"Name\" : \"$hiddev\" , \"DeviceTemp\" : \"$DCTEMP\" , \"ProbeTemp\" : \"$PCTEMP\" }"
+    cnt=$(($cnt + 1))
+done
+
+OUTTEXT="$OUTTEXT } }"
+echo "$OUTTEXT" > $JSONFILE
+
+#echo "END SCRIPT" >> $LOGFILE
+
+
+
 

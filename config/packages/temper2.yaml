@@ -1,22 +1,57 @@
-# HASS sensors & automation to get temperatures from the TEMPer2 sensor
-# This particular sensor has USB ID:  1a86:e025
-# - The -3.5, and -1.3, are correctional values
+# HASS sensors to get temperatures from the TEMPer2 sensors
+#
+# Requires udev rules to be added as follows
+# 1. Shut down Home Assistant
+# 2. Extract the SD Card & plug it in another computer
+# 3. In the Overlay partition, create file /etc/udev/rules.d/99-temper-rules
+# 4. Populate the file as follows (one line per unique VendorID:ProductID of your devices), and save:
+#    SUBSYSTEMS==“usb”, ACTION==“add”, ATTRS{idVendor}==“1a86”, ATTRS{idProduct}==“e025”, MODE=“666”
+# 5. Safely eject from the other computer. Replace in the HASS machine and restart.
+# 
+# Integrate the shell script with HASS
+# 6. Place the script file temper.sh in the '/config/sh' folder
+# 7. Ensure the '/config/files' folder is available and is enabled (See: allowlist_external_dirs)
+# 8. In configuration.yaml, create an entry for the script
+#    shell_command:
+#      temper2: bash /config/sh/temper.sh
+#
+# 9. Create file sensors to read the output file in JSON
+#    The script will output into /config/files/temper2.json
+#    File contents, e.g.: { "temper2" : { "device0" : { "Name" : "hidraw3" , "DeviceTemp" : "18.68" , "ProbeTemp" : "20.87" } , "device1" : { "Name" : "hidraw1" , "DeviceTemp" : "21.06" , "ProbeTemp" : "21.50" } } }
+# HASS sensors to get temperatures from the TEMPer2 sensor
+# - The -3.5, -1.3, -5.9, and -1.4, are correctional values that are specific to these devices. YMMV.
 sensor:
 ###################################
-# TEMPER DEVICE
+# TEMPER 0 DEVICE
 ###################################
 - platform: file
   file_path: /config/files/temper2.json
-  name: TEMPer2 Device
-  value_template: "{{ '%0.2f'| format(value_json.Device|float - 3.5) }}"
+  name: TEMPer2 Stick 1 Device
+  value_template: "{{ '%0.2f'| format(value_json.temper2.device0.DeviceTemp|float - 3.5) }}"
   unit_of_measurement: '°C'
 ###################################
-# TEMPER PROBE
+# TEMPER 0 PROBE
 ###################################
 - platform: file
   file_path: /config/files/temper2.json
-  name: TEMPer2 Probe
-  value_template: "{{ '%0.2f'| format(value_json.Probe|float - 1.3) }}"
+  name: TEMPer2 Stick 1 Probe
+  value_template: "{{ '%0.2f'| format(value_json.temper2.device0.ProbeTemp|float - 1.3) }}"
+  unit_of_measurement: '°C'
+###################################
+# TEMPER 1 DEVICE
+###################################
+- platform: file
+  file_path: /config/files/temper2.json
+  name: TEMPer2 Stick 2 Device
+  value_template: "{{ '%0.2f'| format(value_json.temper2.device1.DeviceTemp|float - 5.9) }}"
+  unit_of_measurement: '°C'
+###################################
+# TEMPER 1 PROBE
+###################################
+- platform: file
+  file_path: /config/files/temper2.json
+  name: TEMPer2 Stick 2 Probe
+  value_template: "{{ '%0.2f'| format(value_json.temper2.device1.ProbeTemp|float - 1.4) }}"
   unit_of_measurement: '°C'
 ###################################
 # TEMPER AUTOMATION
@@ -33,6 +68,7 @@ automation:
     - service: shell_command.temper2
       data: {}
   mode: single
+
 ###################################
 # TEMPER SCRIPT
 ###################################

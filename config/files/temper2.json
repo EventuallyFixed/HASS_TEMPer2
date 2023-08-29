@@ -1,1 +1,1 @@
-{ "Device" : "26.06" , "Probe" : "24.18" }
+{ "temper2" : { "device0" : { "Name" : "hidraw3" , "DeviceTemp" : "18.56" , "ProbeTemp" : "20.87" } , "device1" : { "Name" : "hidraw1" , "DeviceTemp" : "21.06" , "ProbeTemp" : "21.00" } } }
