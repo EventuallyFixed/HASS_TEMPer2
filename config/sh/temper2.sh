@@ -1,86 +1,87 @@
 #!/bin/bash
 #
 # File outputs
-JSONFILE=files/temper2.json
-LOGFILE=files/temper2.log
+JSONFILE=/config/files/temper2.json
+LOGFILE=/config/files/temper2.log
 # Comma separated list of USB Device IDs
 DEVICEIDS=1a86:e025,3553:a001
-declare -A hidDevices
+# Array of hid devices
+HIDDEVICES=()
 
+# echo "BEGIN SCRIPT" > $LOGFILE
 
-#echo "BEGIN SCRIPT" > $LOGFILE
-
-for DEVICEID in $(echo $DEVICEIDS | sed "s/,/ /g")
+# Get the possible hid devices from /sys/class/hidraw
+HIDDIRS=$(find /sys/class/hidraw/*)
+for HIDDIR in $HIDDIRS
 do
-#    echo "Searching output of dmesg for lines having '$DEVICEID'" >> $LOGFILE
+    # Form the uevent path
+    UEVENT_FILE=$(echo "$HIDDIR/device/uevent")
 
-    while IFS= read -r hidstr
+    for DEVICEID in $(echo "$DEVICEIDS" | sed "s/,/\n/g")
     do
-        #whatever with value $hidstr
-#        echo "hidstr: $hidstr" >> $LOGFILE
+        DEVICE_VENDOR=$(echo $DEVICEID | cut -d':' -f1)
+        DEVICE_PRODUCT=$(echo $DEVICEID | cut -d':' -f2)
 
-        # Extract the hid device
-        hidpos=$(echo $hidstr | awk '{print index($0, ",hidraw")}')
-#        echo "hidpos: $hidpos" >> $LOGFILE
+        IS_TEMPER=$(grep -i "HID_ID" $UEVENT_FILE | grep -i $DEVICE_VENDOR | grep -i $DEVICE_PRODUCT)
 
-        hid=$(echo $hidstr | awk -F "," '{print $2}')
-#        echo "hid: $hid" >> $LOGFILE
+        if [ ! -z "$IS_TEMPER" ]; then
+            INPUT_STR=$(grep -i "HID_PHYS" $UEVENT_FILE | cut -d'/' -f2)
 
-        # Substring field 1 with the colon as a delimiter
-        hid=$(echo $hid | awk -F ":" '{print $1}')
+            # Not null so it's a TEMPer2 device
+            if [ "$INPUT_STR" == "input1" ]; then
+                # Get the HID device from the end of the directory string
+                HIDDEV=$(echo "$HIDDIR" | cut -d'/' -f5)
 
-        # Add to the associative array
-        hidDevices[$hid]=$hid
+                # Add to the associative array with value as /dev/$HIDDEV
+                HIDDEVICES[${#HIDDEVICES[@]}]="$HIDDEV"
 
-        # The output of the "dmesg | grep" below is 'injected' into the loop
-    done < <(dmesg | grep -i "$DEVICEID" | grep -i "hidraw" | grep -i "device")
-done
+                # Echo out the result
+                # echo "HIDDEVICE: $HIDDEV" >> $LOGFILE
+            fi
+        fi
+    done
+done 
 
-# Loop though the associative array
-
-OUTTEXT="{ \"temper2\" : { "
-cnt=0
-for hiddev in "${!hidDevices[@]}"
+# Loop through the devices array & get the outputs
+OUTTEXT="{ \"temper2\" : [ "
+CNT=0
+for HIDDEV in "${HIDDEVICES[@]}"
 do
-#    echo "hiddev: $hiddev" >> $LOGFILE
-
-    # Use the keys to make the device name
-    hid=$(echo "/dev/$hiddev")
-#    echo "hid: $hid" >> $LOGFILE
-    exec 5<> $hid
+    # echo "HID KEY: $CNT" >> $LOGFILE
+    # echo "HID DEV: $HIDDEV" >> $LOGFILE
+    HID="/dev/$HIDDEV"
+    # echo "HID FOUND: $HID" >> $LOGFILE
+    exec 5<> $HID
     echo -e '\x00\x01\x80\x33\x01\x00\x00\x00\x00\c' >&5
     # get binary response
     OUT=$(dd count=2 bs=8 <&5 2>/dev/null | xxd -p)
-#    echo "Output: $OUT" >> $LOGFILE
+    # echo "Output: $OUT" >> $LOGFILE
 
     # DEVICE READING
     # characters 5-8 is the device temp in hex x1000
     DHEX4=${OUT:4:4}
     DDVAL=$((16#$DHEX4))
     DCTEMP=$(bc <<< "scale=2; $DDVAL/100")
-#    echo "DEVICE TEMP: $DCTEMP" >> $LOGFILE
+    # echo "DEVICE TEMP: $DCTEMP" >> $LOGFILE
 
     # PROBE READING
     # characters 20-23 is the probe temp in hex x1000
     PHEX4=${OUT:20:4}
     PDVAL=$((16#$PHEX4))
     PCTEMP=$(bc <<< "scale=2; $PDVAL/100")
-#    echo "PROBE TEMP: $PCTEMP" >> $LOGFILE
+    # echo "PROBE TEMP: $PCTEMP" >> $LOGFILE
 
     # Output the temperatures in JSON format
-    cma="\"device$cnt\""
-    if [ $cnt -ne 0 ]; then
-        cma=" , $cma"
+    if [ $CNT -ne 0 ]; then
+        CMA=" , "
     fi
-    OUTTEXT="$OUTTEXT$cma : { \"Name\" : \"$hiddev\" , \"DeviceTemp\" : \"$DCTEMP\" , \"ProbeTemp\" : \"$PCTEMP\" }"
-    cnt=$(($cnt + 1))
+    OUTTEXT="$OUTTEXT$CMA{ \"Name\" : \"$HIDDEV\" , \"DeviceTemp\" : \"$DCTEMP\" , \"ProbeTemp\" : \"$PCTEMP\" }"
+    let CNT++
 done
 
-OUTTEXT="$OUTTEXT } }"
+OUTTEXT="$OUTTEXT ] }"
 echo "$OUTTEXT" > $JSONFILE
 
-#echo "END SCRIPT" >> $LOGFILE
-
-
+# echo "END SCRIPT" >> $LOGFILE
 
 
